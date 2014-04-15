@@ -11,3 +11,7 @@ xianwanzi 是基于sae平台开发的一套微信公共账号自助系统，
 - 会员卡，签到功能
 - 支持二维码扫描事件
 - 支持生成菜单（暂未在界面体现）
+
+
+Demo地址：[http:kevn.sinaapp.com](http:kevn.sinaapp.com)
+测试账号：tmaic@126.com   111111
