@@ -1,0 +1,258 @@
+package com.wanzi.service;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+
+import com.wanzi.dao.AdminReplyDao;
+import com.wanzi.dao.MemberDao;
+import com.wanzi.dao.MessageDao;
+import com.wanzi.dao.ReplyDao;
+import com.wanzi.domain.*;
+import com.wanzi.util.RegexMatcherUtil;
+import com.wanzi.util.WeixinUtil;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Service;
+
+
+@Service("weixinService")
+public class WeixinService {
+
+    private final static Logger log = LogManager.getLogger(WeixinService.class);
+
+	@Resource(name="messageDao")
+	private MessageDao messageDao;
+	
+	@Resource(name="replyDao")
+	private ReplyDao replyDao;
+
+    @Resource(name="adminReplyDao")
+    private AdminReplyDao adminReplyDao;
+
+    @Resource(name="memberDao")
+    private MemberDao memberDao;
+
+	
+
+	/**
+	 * 新增Message对象到数据库中
+	 */
+	public void addMessage(Message message) {
+		messageDao.addMessage(message);
+	}
+	
+	
+	/**
+	 * 将数据库中Message数据分页查出
+	 * @param start 其实数据条数
+	 * @param size  展示数据每页的大小
+	 */
+	public List<Message> listMessage(int start,int size){
+		return messageDao.findMessage(start,size);
+	}
+	
+	/**
+	 * 将数据库中Message数据分页查出
+	 * @param start 其实数据条数
+	 * @param size  展示数据每页的大小
+	 */
+	public List<Reply> listReply(int start,int size){
+		return replyDao.findReply(start,size);
+	}
+	
+	
+	/**
+	 * 保存回复消息至数据库中，如果为news类型消息将article一并保存 
+	 */
+	public void addReply(Reply reply){
+		replyDao.addReply(reply);
+		if(Reply.NEWS.equals(reply.getMsgType())&&null != reply.getArticles()){
+			List<Article> articles = reply.getArticles();
+			for(Article a: articles){
+				a.setReplyId(reply.getId());
+				replyDao.addArticle(a);
+			}
+		}
+	}
+
+    /**
+     * 处理微信发来的请求
+     * @param request
+     * @return
+     */
+    public String processRequest(HttpServletRequest request) {
+
+        Map<String, String> requestMap = WeixinUtil.parseXml(request);
+        Message message = WeixinUtil.mapToMessage(requestMap);
+        addMessage(message);//保存接受消息到数据库
+        String replyContent = Reply.WELCOME_CONTENT;
+
+
+        //默认回复此文本消息
+        Reply reply = new Reply();
+        reply.setToUserName(message.getFromUserName());
+        reply.setFromUserName(message.getToUserName());
+        reply.setCreateTime(new Date());
+        reply.setMsgType(Reply.TEXT);
+        reply.setContent(replyContent);
+
+        replyContent = applyRequest(message,reply,request);
+
+        reply.setContent(replyContent);
+        addReply(reply);//保存回复消息到数据库
+        //将回复消息序列化为xml形式
+        String result = WeixinUtil.replyToXml(reply);
+        log.error("首次处理的xml:"+result);
+        return result;
+    }
+
+    public String applyRequest(Message message, Reply reply,HttpServletRequest request) {
+        String messageType = message.getMsgType();
+        String replyContent = reply.getContent();
+        //文本消息
+        if (messageType.equals(Message.TEXT)) {//仅处理文本回复内容
+            replyContent = MessageText(message,reply,request);
+        }
+
+        //图片消息
+        else if(messageType.equals(Message.IMAGE)){
+            replyContent = "您发送的是图片消息";
+        }
+
+        //地理位置信息
+        else if(messageType.equals(Message.LOCATION)){
+            replyContent = "您发送的是地理位置信息";
+        }
+
+        //链接信息
+        else if (messageType.equals(Message.LINK)){
+            replyContent = "您发送的是链接信息";
+        }
+
+        //音频信息
+        else if (messageType.equals(Message.LINK)){
+            replyContent = "您发送的是音频信息";
+        }
+
+        //事件推送
+        else if (messageType.equals(Message.EVENT)){
+            String eventType = message.getEvent();
+            //订阅
+            if(eventType.equals(EventType.EVENT_TYPE_SUBSCRIBE)){
+
+            }
+            //取消订阅
+            else if (eventType.equals(EventType.EVENT_TYPE_unSUBSCRIBE)){
+
+            }
+            //自定义菜单点击事件
+            else if (eventType.equals(EventType.EVENT_TYPE_CLICK)){
+                String key = message.getEventKey();
+
+            }
+        }
+        return replyContent;
+    }
+
+    private String MessageText(Message message,Reply reply,HttpServletRequest request) {
+        String content = message.getContent();//消息内容
+        String replyContent = reply.getContent();
+        if ("1".equals(content)) {
+            //办理会员卡信息
+
+            Member member = memberDao.getMemberByOpenId(reply.getToUserName());
+            String token = request.getParameter("t");
+            if(member == null){
+                Article article = new Article();
+                List<Article> articles = new ArrayList<Article>();
+                article.setTitle("申请尊享微信会员卡");
+                article.setDescription("您尚未申领会员特权，快来点击申领吧！！");
+                article.setUrl("http://kevn.sinaapp.com/member?openId="+reply.getToUserName()+"&token="+token);
+                article.setPicUrl("http://imger.u.qiniudn.com/vip.jpg");
+                articles.add(article);
+                reply.setArticleCount(articles.size());
+                reply.setMsgType(Reply.NEWS);
+                reply.setArticles(articles);
+            }else{
+                Article article = new Article();
+                List<Article> articles = new ArrayList<Article>();
+                article.setTitle("尊敬的会员");
+                article.setDescription("尊贵" +
+                        "的会员，您的会员卡号为："+member.getMemberId()+",详情可点击进入查询！");
+                article.setUrl("http://kevn.sinaapp.com/member?openId="+reply.getFromUserName()+"&token="+token);
+                article.setPicUrl("http://imger.u.qiniudn.com/vip.jpg");
+                articles.add(article);
+                reply.setArticleCount(articles.size());
+
+                reply.setMsgType(Reply.NEWS);
+                reply.setArticles(articles);
+            }
+            //绑定openID
+            request.getSession().setAttribute("currentOpenId",reply.getFromUserName());
+
+            request.getSession().setAttribute("currentToken",token);
+        }
+        if ("2".equals(content)) {
+            replyContent = "暂无促销信息\n";
+        }
+        if ("3".equals(content)) {
+            replyContent = "您好，以下为您卡号信息，\n卡号：641368962\n积分：0\n余额：0元\n";
+        }
+        if ("9".equals(content)) {
+
+            Article article = new Article();
+            List<Article> articles = new ArrayList<Article>();
+            article.setTitle("你好");
+            article.setDescription("唯一神话");
+            article.setUrl("http://sevn7.com");
+            article.setPicUrl("https://dn-portal-static.qbox.me/public/v592/image/special-events/qiniu-zhuangbility.png");
+            articles.add(article);
+            reply.setArticleCount(articles.size());
+            reply.setArticles(articles);
+            reply.setMsgType(Reply.NEWS);
+            if(message.getToUserName().equals("tmaic")){
+                log.error("test-----:"+WeixinUtil.replyToXml(reply));
+            }
+            return replyContent;
+        }
+
+        if (RegexMatcherUtil.isPhone(content)) {
+            //插入会员卡表
+            replyContent = "您已成为小丸子菜单会员，以下为您卡号信息，\n卡号：641368962\n积分：0\n余额：0元\n";
+
+        }
+        return replyContent;
+    }
+
+    /**
+     * 获取文本/图文回复消息
+     * @param token
+     * @return
+     */
+    public List<AdminReply> getAdminReplyByText(String token,int type) {
+        List<AdminReply> adminReplies = adminReplyDao.getAdminReplyByText(token,type);
+        return adminReplies;
+    }
+
+    public void saveAdminReply(AdminReply adminReply) {
+        adminReplyDao.saveAdminReply(adminReply);
+    }
+
+    public AdminReply getTextById(int id) {
+
+        return adminReplyDao.getTextById(id);
+    }
+
+    public void updateTextStatusById(int id,String token) {
+        adminReplyDao.updateTextStatusById(id,token);
+    }
+
+    public void updateTextReply(AdminReply adminReply) {
+        adminReplyDao.updateTextReply(adminReply);
+    }
+}

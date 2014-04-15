@@ -1,0 +1,88 @@
+package com.wanzi.service;
+
+import com.sina.sae.memcached.SaeMemcache;
+import com.wanzi.dao.AccountDao;
+import com.wanzi.domain.Account;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.Resource;
+import java.util.List;
+
+/**
+ * User: meichao
+ * Date: 14-3-3
+ * Time: 下午5:34
+ */
+@Service("accountService")
+public class AccountService {
+
+    @Resource(name="accountDao")
+    private AccountDao accountDao;
+
+    private final static Logger log = LogManager.getLogger(AccountService.class);
+
+    public int saveAccount(Account account) {
+
+        return accountDao.saveAccount(account);
+    }
+
+    public List<Account> getAllAccount(int userId) {
+        return accountDao.getAccountList(userId);
+    }
+
+    public Account getAccountById(int id,int userId) {
+        Object obj = null;
+        Account account = new Account();
+        try {
+            SaeMemcache mc = new SaeMemcache();
+            mc.init();
+            String key =  "account_"+id+"_"+userId;
+            obj = mc.get(key);
+            if(obj == null){
+                try {
+                    account = accountDao.getAccountById(id,userId);
+                } catch (Exception e) {
+                    log.error("AccountService.getAccountById.getAccountById.error",e);
+                }
+                mc.add(key,account);
+                return account;
+            }
+            log.error("此次拉取为缓存");
+        } catch (Exception e) {
+            log.error("缓存操作出错：",e);
+        }
+        return (Account)obj;
+    }
+
+    public void updateAccountStatus(int id, int userId) {
+        accountDao.updateAccountStatus(id,userId);
+
+    }
+
+    public int getTokenCount(String token) {
+        Object obj = null;
+        int count = 0;
+        try {
+            SaeMemcache mc = new SaeMemcache();
+            mc.init();
+            obj = mc.get(token);
+            if(obj == null){
+                try {
+                    count = accountDao.getTokenCount(token);
+                } catch (Exception e) {
+                    log.error("AccountService.getAccountById.getAccountById.error",e);
+                }
+                mc.add(token,count);
+            }else {
+                count = (Integer)obj;
+            }
+        } catch (Exception e) {
+            log.error("缓存操作出错：",e);
+        }
+
+
+        return count;
+    }
+}

@@ -1,0 +1,39 @@
+body{
+    background: #34495e;
+    color: #1abc9c;
+}
+
+.navbar{border-radius: 0}
+.jumbotron-gr{
+    background: #34495e;
+    color: #1abc9c;
+}
+.text-centered{text-align: center}
+
+
+.comments-line {
+    /*position: relative;*/
+    /*top: 60px;*/
+    height: 10px;
+    background: url(../images/line_02.png) repeat-x;
+}
+
+.showcase-item{
+    height: 220px;
+    padding: 2px;
+}
+
+.showcase-item .showcase-item-box{
+    background: #e07f69;
+    color: #ffffff;
+    padding: 40px;
+    height: 100%;
+    width: 100%;
+    text-align: center;
+}
+
+@media (max-width: 767px) {
+    .jumbotron h1{
+        font-size: 31px;
+    }
+}

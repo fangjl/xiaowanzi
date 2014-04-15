@@ -1,0 +1,317 @@
+package com.wanzi.web.weixin;
+
+
+import com.sina.sae.kvdb.SaeKV;
+import com.sina.sae.kvdb.SaeKVUtil;
+import com.wanzi.domain.Account;
+import com.wanzi.domain.AdminReply;
+import com.wanzi.domain.SystemConstant;
+import com.wanzi.domain.User;
+import com.wanzi.service.AccountService;
+import com.wanzi.service.UserService;
+import com.wanzi.service.WeixinService;
+import com.wanzi.util.StringUtil;
+import com.wanzi.util.WeixinUtil;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Controller;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.ModelAndView;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+
+import java.io.IOException;
+import java.util.List;
+
+
+/**
+ * Created by meichao on 14-3-2.
+ */
+@Controller
+public class AdminController {
+
+    private final static Logger log = LogManager.getLogger(AdminController.class);
+
+
+    @Resource(name="accountService")
+    private AccountService accountService;
+
+    @Resource(name="userService")
+    private UserService userService;
+
+    @Resource(name = "weixinService")
+    private WeixinService weixinService;
+
+    @RequestMapping(value = "/admin/main",method = RequestMethod.GET)
+    public ModelAndView main(HttpServletRequest request){
+        ModelAndView modelAndView = new ModelAndView("main");
+        modelAndView.addObject("sidebar","main");
+        User user = (User)request.getSession().getAttribute("currentUser");
+        modelAndView.addObject("currentUser",user);
+
+
+        //list account
+        List<Account> accounts = accountService.getAllAccount(user.getId());
+        modelAndView.addObject("accounts",accounts);
+
+
+        return modelAndView;
+
+    }
+
+
+    @RequestMapping(value = "/admin/addAccount",method = RequestMethod.GET)
+    public ModelAndView addAccount(){
+        ModelAndView modelAndView = new ModelAndView("addAccount");
+        modelAndView.addObject("sidebar", "main");
+        return modelAndView;
+    }
+
+
+    @RequestMapping(value = "/admin/saveAccount",method = RequestMethod.POST)
+    @ResponseBody
+    public Account saveAccount(HttpServletRequest request,@ModelAttribute("Account")Account account){
+        User user = (User)request.getSession().getAttribute("currentUser");
+        account.setUserId(user.getId());
+        //生成url,token
+        String UUID = WeixinUtil.createUUID();
+        account.setUrl(UUID);
+        account.setToken(UUID);
+        account.setStatus(0);
+        int id = accountService.saveAccount(account);
+        account.setUrl(SystemConstant.ACCOUNT_URL+ "?t=" + UUID);
+        log.error("公共账号url：" + account.getUrl());
+        return account;
+        //保存公共账号
+    }
+
+    @RequestMapping(value = "/admin/account/detail/{id}",method = RequestMethod.GET)
+    public ModelAndView detail(@PathVariable("id") int id,HttpServletRequest request){
+        ModelAndView modelAndView = new ModelAndView("accountDetail");
+        modelAndView.addObject("sidebar","account");
+        Account account = getAccount(id,request);
+        account.setUrl(SystemConstant.ACCOUNT_URL + "?t=" + account.getUrl());
+        modelAndView.addObject("account", account);
+        request.getSession().setAttribute("accountId",account.getId());
+        request.getSession().setAttribute("currentAccount",account);
+        return modelAndView;
+    }
+
+    private Account getAccount(int id, HttpServletRequest request) {
+        User user = (User)request.getSession().getAttribute("currentUser");
+        Account account = accountService.getAccountById(id,user.getId());
+        return account;
+    }
+
+    @RequestMapping(value = "/admin/account/delete/{id}",method = RequestMethod.GET)
+    public ModelAndView delete(@PathVariable("id") int id,HttpServletRequest request){
+        ModelAndView modelAndView = new ModelAndView();
+        modelAndView.addObject("sidebar","main");
+        User user = (User)request.getSession().getAttribute("currentUser");
+        accountService.updateAccountStatus(id, user.getId());
+        modelAndView.setViewName("redirect:/admin/main");
+
+        return modelAndView;
+    }
+
+
+    @RequestMapping(value = "/admin/user",method = RequestMethod.GET)
+    public ModelAndView userInfo(HttpServletRequest request){
+        ModelAndView modelAndView = new ModelAndView("userInfo");
+        modelAndView.addObject("sidebar","user");
+        User user = (User)request.getSession().getAttribute("currentUser");
+        modelAndView.addObject("currentUser",user);
+
+        return modelAndView;
+    }
+    @RequestMapping(value = "/admin/subscribe",method = RequestMethod.GET)
+    public ModelAndView subscribe(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("subscribe");
+        mv.addObject("sidebar","subscribe");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        try {
+            Account account = (Account)request.getSession().getAttribute("currentAccount");
+            SaeKV kv = new SaeKV();
+            kv.init();
+            Object obj = kv.get("sub_"+account.getToken());
+            if(obj != null){
+                String sub_msg = SaeKVUtil.byteToString((byte[])kv.get("sub_"+account.getToken()));
+                log.error("根据token取出kv库的值："+sub_msg);
+                mv.addObject("sub_msg",sub_msg);
+            }
+        } catch (Exception e) {
+            log.error("kv数据库出错:",e);
+        }
+        return mv;
+    }
+
+    @RequestMapping(value = "/admin/dosubscribe",method = RequestMethod.POST)
+    @ResponseBody
+    public String dosubscribe(HttpServletRequest request){
+        String sub_msg = request.getParameter("sub_msg");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        if(StringUtil.isNotBlank(sub_msg)){
+            try {
+                Account account = (Account)request.getSession().getAttribute("currentAccount");
+                SaeKV kv = new SaeKV();
+                kv.init();
+                kv.set("sub_" + account.getToken(), SaeKVUtil.StringToByte(sub_msg));
+                log.error("根据token取出kv库的值：" + SaeKVUtil.byteToString((byte[]) kv.get("sub_" + account.getToken())));
+            } catch (Exception e) {
+                log.error("kv数据库出错:",e);
+            }
+        }
+        return "success";
+    }
+    
+    @RequestMapping(value = "/admin/defaultReply",method = RequestMethod.GET)
+    public ModelAndView defaultReply(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("defaultReply");
+        mv.addObject("sidebar","default_reply");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        try {
+            Account account = (Account)request.getSession().getAttribute("currentAccount");
+            SaeKV kv = new SaeKV();
+            kv.init();
+            Object obj = kv.get("df_"+account.getToken());
+            if(obj != null){
+                String sub_msg = SaeKVUtil.byteToString((byte[])kv.get("df_"+account.getToken()));
+                log.error("根据token取出kv库的值："+sub_msg);
+                mv.addObject("sub_msg",sub_msg);
+            }
+        } catch (Exception e) {
+            log.error("kv数据库出错:",e);
+        }
+        return mv;
+    }
+
+    @RequestMapping(value = "/admin/dodefaultReply",method = RequestMethod.POST)
+    @ResponseBody
+    public String dodefaultReply(HttpServletRequest request){
+        String sub_msg = request.getParameter("sub_msg");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        if(StringUtil.isNotBlank(sub_msg)){
+            try {
+                Account account = getAccount(accountId,request);
+                SaeKV kv = new SaeKV();
+                kv.init();
+                kv.set("df_" + account.getToken(), SaeKVUtil.StringToByte(sub_msg));
+                log.error("根据token取出kv库的值：" + SaeKVUtil.byteToString((byte[]) kv.get("df_" + account.getToken())));
+            } catch (Exception e) {
+                log.error("kv数据库出错:",e);
+            }
+        }
+        return "success";
+    }
+
+    /**
+     * 文本消息首页
+     * @param request
+     * @return
+     */
+    @RequestMapping(value = "/admin/textReply",method = RequestMethod.GET)
+    public ModelAndView textReply(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("textReply");
+        mv.addObject("sidebar","keyword_text_reply");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        List<AdminReply> adminReplies = weixinService.getAdminReplyByText(account.getToken(),0);
+        mv.addObject("adminReplies",adminReplies);
+        return mv;
+    }
+    @RequestMapping(value = "/admin/addTextReply",method = RequestMethod.GET)
+    public ModelAndView addTextReply(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("addTextReply");
+        mv.addObject("sidebar","keyword_text_reply");
+        return mv;
+    }
+
+    @RequestMapping(value = "/admin/saveTextReply",method = RequestMethod.POST)
+    @ResponseBody
+    public String saveTextReply(HttpServletRequest request,@ModelAttribute("AdminReply")AdminReply adminReply){
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        adminReply.setStatus(0);
+        adminReply.setType(0);
+        adminReply.setToken(account.getToken());
+        weixinService.saveAdminReply(adminReply);
+        return "success";
+    }
+    @RequestMapping(value = "/admin/text/detail/{id}",method = RequestMethod.GET)
+    public ModelAndView textDetail(@PathVariable("id") int id,HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("textDetail");
+        mv.addObject("sidebar","keyword_text_reply");
+        AdminReply adminReply = weixinService.getTextById(id);
+        mv.addObject("adminReply",adminReply);
+        return mv;
+    }
+
+    @RequestMapping(value = "/admin/updateTextReply",method = RequestMethod.POST)
+    @ResponseBody
+    public String updateTextReply(HttpServletRequest request,@ModelAttribute("AdminReply")AdminReply adminReply){
+        ModelAndView mv = new ModelAndView("textDetail");
+        mv.addObject("sidebar", "keyword_text_reply");
+        weixinService.updateTextReply(adminReply);
+        return "success";
+    }
+
+
+
+    @RequestMapping(value = "/admin/text/delete/{id}",method = RequestMethod.GET)
+    public ModelAndView textDelete(@PathVariable("id") int id,HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("addTextReply");
+        mv.addObject("sidebar","keyword_text_reply");
+        mv.setViewName("redirect:/admin/textReply");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        weixinService.updateTextStatusById(id,account.getToken());
+        return mv;
+    }
+
+
+    /**
+     * 图文消息首页
+     * @param request
+     * @return
+     */
+    @RequestMapping(value = "/admin/articleReply",method = RequestMethod.GET)
+    public ModelAndView articleReply(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("articleReply");
+        mv.addObject("sidebar", "keyword_article_reply");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        List<AdminReply> adminReplies = weixinService.getAdminReplyByText(account.getToken(),1);
+        mv.addObject("adminReplies",adminReplies);
+        return mv;
+    }
+
+
+
+    @RequestMapping(value = "/admin/addArticleReply",method = RequestMethod.GET)
+    public ModelAndView addArticleReply(HttpServletRequest request){
+        ModelAndView mv = new ModelAndView("addArticleReply");
+        mv.addObject("sidebar", "keyword_article_reply");
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        List<AdminReply> adminReplies = weixinService.getAdminReplyByText(account.getToken(),1);
+        mv.addObject("adminReplies",adminReplies);
+        return mv;
+    }
+
+
+    @RequestMapping(value = "/admin/saveArticleReply",method = RequestMethod.POST)
+    public ModelAndView saveArticleReply(HttpServletRequest request,@ModelAttribute("AdminReply")AdminReply adminReply){
+        ModelAndView mv = new ModelAndView();
+        int accountId = (Integer)request.getSession().getAttribute("accountId");
+        Account account = getAccount(accountId,request);
+        adminReply.setStatus(0);
+        adminReply.setType(1);
+        adminReply.setToken(account.getToken());
+        weixinService.saveAdminReply(adminReply);
+        mv.setViewName("redirect:/admin/articleReply");
+
+        return mv;
+    }
+}

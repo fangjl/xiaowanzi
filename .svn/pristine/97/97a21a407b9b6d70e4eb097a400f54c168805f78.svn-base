@@ -1,0 +1,25 @@
+package com.wanzi.dao;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.wanzi.domain.Message;
+import org.springframework.stereotype.Component;
+
+
+@Component("messageDao")
+public class MessageDao extends BaseDao {
+
+	public int addMessage(Message message) {
+		return this.writerSqlSession.insert("com.wanzi.dao.MessageDao.addMessage", message);
+	}
+	
+	public List<Message> findMessage(int start,int size) {
+		Map<String,Integer> map = new HashMap<String,Integer>();
+		map.put("start", start);
+		map.put("size", size);
+		return this.readSqlSession.selectList("com.wanzi.dao.MessageDao.selectMessage",map);
+	}
+	
+}

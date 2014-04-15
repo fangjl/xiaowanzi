@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/com-wanzi-dao/com-wanzi-dao.iml" filepath="$PROJECT_DIR$/com-wanzi-dao/com-wanzi-dao.iml" />
+      <module fileurl="file://$PROJECT_DIR$/com-wanzi-domain/com-wanzi-domain.iml" filepath="$PROJECT_DIR$/com-wanzi-domain/com-wanzi-domain.iml" />
+      <module fileurl="file://$PROJECT_DIR$/com-wanzi-service/com-wanzi-service.iml" filepath="$PROJECT_DIR$/com-wanzi-service/com-wanzi-service.iml" />
+      <module fileurl="file://$PROJECT_DIR$/com-wanzi-util/com-wanzi-util.iml" filepath="$PROJECT_DIR$/com-wanzi-util/com-wanzi-util.iml" />
+      <module fileurl="file://$PROJECT_DIR$/com-wanzi-web/com-wanzi-web.iml" filepath="$PROJECT_DIR$/com-wanzi-web/com-wanzi-web.iml" />
+      <module fileurl="file://$PROJECT_DIR$/xiaowanzi.iml" filepath="$PROJECT_DIR$/xiaowanzi.iml" />
+    </modules>
+  </component>
+</project>
+

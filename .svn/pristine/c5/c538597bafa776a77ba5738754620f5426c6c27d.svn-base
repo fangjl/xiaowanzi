@@ -1,0 +1,363 @@
+package com.wanzi.service;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+
+import com.sina.sae.kvdb.SaeKV;
+import com.sina.sae.kvdb.SaeKVUtil;
+import com.wanzi.dao.AdminReplyDao;
+import com.wanzi.dao.MemberDao;
+import com.wanzi.dao.MessageDao;
+import com.wanzi.dao.ReplyDao;
+import com.wanzi.domain.*;
+import com.wanzi.util.RegexMatcherUtil;
+import com.wanzi.util.StringUtil;
+import com.wanzi.util.WeixinUtil;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Service;
+
+
+@Service("weixinService")
+public class WeixinService {
+
+    private final static Logger log = LogManager.getLogger(WeixinService.class);
+
+	@Resource(name="messageDao")
+	private MessageDao messageDao;
+	
+	@Resource(name="replyDao")
+	private ReplyDao replyDao;
+
+    @Resource(name="adminReplyDao")
+    private AdminReplyDao adminReplyDao;
+
+    @Resource(name="memberDao")
+    private MemberDao memberDao;
+
+	
+
+	/**
+	 * 新增Message对象到数据库中
+	 */
+	public void addMessage(Message message) {
+		messageDao.addMessage(message);
+	}
+	
+	
+	/**
+	 * 将数据库中Message数据分页查出
+	 * @param start 其实数据条数
+	 * @param size  展示数据每页的大小
+	 */
+	public List<Message> listMessage(int start,int size){
+		return messageDao.findMessage(start,size);
+	}
+	
+	/**
+	 * 将数据库中Message数据分页查出
+	 * @param start 其实数据条数
+	 * @param size  展示数据每页的大小
+	 */
+	public List<Reply> listReply(int start,int size){
+		return replyDao.findReply(start,size);
+	}
+	
+	
+	/**
+	 * 保存回复消息至数据库中，如果为news类型消息将article一并保存 
+	 */
+	public void addReply(Reply reply){
+		replyDao.addReply(reply);
+		if(Reply.NEWS.equals(reply.getMsgType())&&null != reply.getArticles()){
+			List<Article> articles = reply.getArticles();
+			for(Article a: articles){
+				a.setReplyId(reply.getId());
+				replyDao.addArticle(a);
+			}
+		}
+	}
+
+    /**
+     * 处理微信发来的请求
+     * @param request
+     * @return
+     */
+    public String processRequest(HttpServletRequest request) {
+
+        Map<String, String> requestMap = WeixinUtil.parseXml(request);
+        Message message = WeixinUtil.mapToMessage(requestMap);
+        addMessage(message);//保存接受消息到数据库
+        //默认回复类容
+        String token = request.getParameter("t");
+        String replyContent = getDefaultContent(token);
+
+
+        //默认回复此文本消息
+        Reply reply = new Reply();
+        reply.setToUserName(message.getFromUserName());
+        reply.setFromUserName(message.getToUserName());
+        reply.setCreateTime(new Date());
+        reply.setMsgType(Reply.TEXT);
+        reply.setContent(replyContent);
+
+        replyContent = applyRequest(message,reply,request);
+
+        reply.setContent(replyContent);
+        addReply(reply);//保存回复消息到数据库
+        //将回复消息序列化为xml形式
+        String result = WeixinUtil.replyToXml(reply);
+        log.error("首次处理的xml:"+result);
+        return result;
+    }
+
+    /**
+     * 获取默认回复值
+     * @param token
+     * @return
+     */
+    private String getDefaultContent(String token) {
+        SaeKV kv = new SaeKV();
+        kv.init();
+        Object obj = kv.get("df_"+token);
+        if(obj != null){
+            String sub_msg = SaeKVUtil.byteToString((byte[]) kv.get("df_" + token));
+            log.error("根据token取出kv库的值："+sub_msg);
+            return sub_msg;
+        }
+        return "welcome";
+    }
+
+    public String applyRequest(Message message, Reply reply,HttpServletRequest request) {
+        String messageType = message.getMsgType();
+        String replyContent = reply.getContent();
+        String token = request.getParameter("t");
+        //文本消息
+        if (messageType.equals(Message.TEXT)) {//仅处理文本回复内容
+            replyContent = MessageText(message,reply,request);
+            return replyContent;
+        }
+
+        //图片消息
+        else if(messageType.equals(Message.IMAGE)){
+            replyContent = "您发送的是图片消息";
+            return replyContent;
+        }
+
+        //地理位置信息
+        else if(messageType.equals(Message.LOCATION)){
+            replyContent = "您发送的是地理位置信息";
+            return replyContent;
+        }
+
+        //链接信息
+        else if (messageType.equals(Message.LINK)){
+            replyContent = "您发送的是链接信息";
+            return replyContent;
+        }
+
+        //音频信息
+        else if (messageType.equals(Message.LINK)){
+            replyContent = "您发送的是音频信息";
+            return replyContent;
+        }
+
+        //事件推送
+        else if (messageType.equals(Message.EVENT)){
+            String eventType = message.getEvent();
+            //订阅
+            if(eventType.equals(EventType.EVENT_TYPE_SUBSCRIBE)){
+                String eventKey = message.getEventKey();
+                //如果是二维码事件 key=qrscene_123123
+                String[] ids = eventKey.split("_");
+                if(ids.length == 2){
+                    String ticket = message.getTicket();
+                    log.error("二维码带来首次关注，触发二维码事件，scene_id:"+ids[1]+"   ticket:"+ticket);
+                    replyContent = "欢迎关注小丸子，因通过扫描二维码关注，享全场买一送一活动！输入数字:1,免费办理会员卡！";
+                    return replyContent;
+                }
+                //首次订阅 回复消息
+                if(StringUtil.isNotBlank(getSubscribeContent(token))){
+                    replyContent = getSubscribeContent(token);
+                    return replyContent;
+                }
+            }
+            //取消订阅
+            else if (eventType.equals(EventType.EVENT_TYPE_unSUBSCRIBE)){
+
+            }
+            //自定义菜单点击事件
+            else if (eventType.equals(EventType.EVENT_TYPE_CLICK)){
+                String key = message.getEventKey();
+
+            }
+            //二维码事件
+            else if(eventType.equals(EventType.EVENT_TYPE_SCAN)){
+                String key = message.getEventKey(); //二维码scene_id
+                String ticket = message.getTicket();
+                log.error("触发二维码事件，scene_id:"+key+"   ticket:"+ticket);
+                replyContent = "因通过扫描二维码参与活动，享全场买一送一活动！输入数字:1,免费办理会员卡！";
+            }
+
+        }
+        return replyContent;
+    }
+
+    /**
+     * 获取首次关注回复值
+     * @param token
+     * @return
+     */
+    private String getSubscribeContent(String token) {
+        SaeKV kv = new SaeKV();
+        kv.init();
+        Object obj = kv.get("sub_" + token);
+        if(obj != null){
+            String sub_msg = SaeKVUtil.byteToString((byte[])kv.get("sub_"+token));
+            log.error("根据token取出kv库的值：" + sub_msg);
+            return sub_msg;
+        }
+        return "";
+    }
+
+    /**
+     * 文本消息处理
+     * @param message 消息
+     * @param reply   返回
+     * @param request
+     * @return
+     */
+    private String MessageText(Message message,Reply reply,HttpServletRequest request) {
+        String content = message.getContent();//消息内容
+        String replyContent = reply.getContent();
+        String token = request.getParameter("t");
+        if ("1".equals(content)) {
+            //办理会员卡信息
+
+            Member member = memberDao.getMemberByOpenId(reply.getToUserName());
+            if(member == null){
+                Article article = new Article();
+                List<Article> articles = new ArrayList<Article>();
+                article.setTitle("申请尊享微信会员卡");
+                article.setDescription("您尚未申领会员特权，快来点击申领吧！！");
+                article.setUrl("http://kevn.sinaapp.com/member?openId="+reply.getToUserName()+"&token="+token);
+                article.setPicUrl("http://imger.u.qiniudn.com/vip.jpg");
+                articles.add(article);
+                reply.setArticleCount(articles.size());
+                reply.setMsgType(Reply.NEWS);
+                reply.setArticles(articles);
+            }else{
+                Article article = new Article();
+                List<Article> articles = new ArrayList<Article>();
+                article.setTitle("尊敬的会员");
+                article.setDescription("尊贵" +
+                        "的会员，您的会员卡号为："+member.getId()+",详情可点击进入查询！");
+                article.setUrl("http://kevn.sinaapp.com/member?openId="+reply.getToUserName()+"&token="+token);
+                article.setPicUrl("http://imger.u.qiniudn.com/vip.jpg");
+                articles.add(article);
+                reply.setArticleCount(articles.size());
+
+                reply.setMsgType(Reply.NEWS);
+                reply.setArticles(articles);
+            }
+            //绑定openID
+            request.getSession().setAttribute("currentOpenId",reply.getFromUserName());
+
+            request.getSession().setAttribute("currentToken",token);
+        }
+
+        /**
+         * 1.根据关键字，查找需要返回的类容
+         * 2.图文消息Article可能会有多条
+         * 3.文本消息回复只能有一条
+         */
+       List<AdminReply> adminReplys = adminReplyDao.getAdminReplyByKeyWord(content,token);
+       if(adminReplys.size() == 1){
+           AdminReply adminReply = adminReplys.get(0);
+           if(adminReply.getType() == 0){
+               //文本
+               replyContent = adminReply.getMsgtext();
+           }
+           else if(adminReply.getType() == 1){
+               //图文
+               List<Article> articles = new ArrayList<Article>();
+
+               Article article = coventArticle(adminReply);
+
+               articles.add(article);
+               reply.setArticleCount(articles.size());
+               reply.setMsgType(Reply.NEWS);
+               reply.setArticles(articles);
+           }
+
+       }
+       if(adminReplys.size() > 1){
+           //图文
+           List<Article> articles = new ArrayList<Article>();
+           for(AdminReply ar : adminReplys){
+               Article article = coventArticle(ar);
+               articles.add(article);
+           }
+           reply.setArticleCount(articles.size());
+           reply.setMsgType(Reply.NEWS);
+           reply.setArticles(articles);
+       }
+
+
+
+
+
+        return replyContent;
+    }
+
+    /**
+     * 组装图文信息
+     * @param adminReply
+     * @return
+     */
+    private Article coventArticle(AdminReply adminReply) {
+        Article article = new Article();
+        article.setTitle(adminReply.getTitle());
+        article.setDescription(adminReply.getDescription());
+        article.setUrl(SystemConstant.HOME_MODLE+"/article?id="+adminReply.getId());
+        article.setPicUrl(SystemConstant.PREPIC_URL+adminReply.getPicUrl());
+        return article;
+    }
+
+    /**
+     * 获取文本/图文回复消息
+     * @param token
+     * @return
+     */
+    public List<AdminReply> getAdminReplyByText(String token,int type) {
+        List<AdminReply> adminReplies = adminReplyDao.getAdminReplyByText(token,type);
+        return adminReplies;
+    }
+
+    public void saveAdminReply(AdminReply adminReply) {
+        adminReplyDao.saveAdminReply(adminReply);
+    }
+
+    public AdminReply getTextById(int id) {
+
+        return adminReplyDao.getTextById(id);
+    }
+
+    public void updateTextStatusById(int id,String token) {
+        adminReplyDao.updateTextStatusById(id,token);
+    }
+
+    public void updateTextReply(AdminReply adminReply) {
+        adminReplyDao.updateTextReply(adminReply);
+    }
+
+    public static void main(String[] args) {
+        String[] ids = "sadfasd_33".split("_");
+        System.out.println("ids = " + ids.length);
+    }
+}

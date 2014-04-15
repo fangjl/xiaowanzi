@@ -1,0 +1,25 @@
+package com.wanzi.web.weixin;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
+
+/**
+ * User: meichao
+ * Date: 14-4-3
+ * Time: 上午10:57
+ */
+@Controller
+public class UploadController {
+
+    @RequestMapping(value = "/upload/saveImg",method = RequestMethod.POST)
+    @ResponseBody
+    public String saveImg(MultipartHttpServletRequest request) {
+        MultipartFile file = request.getFile("imgFile");
+        return "";
+    }
+
+}

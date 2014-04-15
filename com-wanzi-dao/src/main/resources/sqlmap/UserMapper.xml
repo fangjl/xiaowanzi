@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.wanzi.dao.UserDao">
+
+    <insert id="saveUser" parameterType="com.wanzi.domain.User" useGeneratedKeys="true" keyProperty="id">
+        insert into user
+		(username,password,email,created,modified)
+		values(#{userName},#{password},#{email},now(),now())
+	</insert>
+
+    <select id="findUser" parameterType="map" resultMap="userMap">
+		select
+		id,username,password,email,created,modified
+		from user where email = #{email} and password = #{password}
+	</select>
+
+    <select id="findUserCountByEmail" parameterType="String" resultType="int">
+		select count(*)
+		from user where email = #{email}
+	</select>
+
+    <!--<select id="selectUser" parameterType="int" resultMap="messageMap">-->
+		<!--select-->
+		<!--id,tousername,fromusername,msgtype,createtime,msgid,content,picurl,title,description,url,locationx,locationy,scale,label,event,eventkey-->
+		<!--from message-->
+		<!--order by createtime desc-->
+		<!--limit #{start},#{size}-->
+	<!--</select>-->
+
+    <resultMap type="User" id="userMap">
+        <id property="id" column="id" />
+        <result property="userName" column="username" />
+        <result property="password" column="password" />
+        <result property="email" column="email" />
+        <result property="created" column="created" />
+        <result property="modified" column="modified" />
+    </resultMap>
+
+</mapper>
